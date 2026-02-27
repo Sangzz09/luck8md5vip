@@ -15,43 +15,33 @@ async function fetchLatest(id = "") {
   return res.data;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function parseDice(data) {
-  // Cố gắng lấy xúc xắc từ nhiều cấu trúc JSON khác nhau
-  const d =
-    data.dice ||
-    data.Dice ||
-    data.xucxac ||
-    data.result?.dice ||
-    data.data?.dice ||
-    [];
-  return Array.isArray(d) ? d : [];
+// ─── Helpers (cấu trúc thực tế luck8bot) ─────────────────────────────────────
+// Response: {"state":1,"data":{"ID":76509,"Expect":"2602271009","OpenCode":"4,3,3","OpenTime":"...","TableName":"TaixiuMD5"}}
+
+function parseDice(raw) {
+  try {
+    const openCode = raw?.data?.OpenCode || "";
+    if (openCode) {
+      return openCode.split(",").map((v) => parseInt(v.trim(), 10));
+    }
+  } catch {}
+  return [];
 }
 
 function parseTotal(dice) {
   return dice.reduce((s, v) => s + Number(v), 0);
 }
 
-function parsePienId(data) {
-  return (
-    data.id ||
-    data.Id ||
-    data.phien ||
-    data.sessionId ||
-    data.result?.id ||
-    data.data?.id ||
-    null
-  );
+function parsePienId(raw) {
+  // Expect: "2602271009" hoặc ID số
+  return raw?.data?.Expect || raw?.data?.ID || null;
 }
 
-function parseResult(data, dice) {
-  const r =
-    data.result ||
-    data.Result ||
-    data.ketqua ||
-    data.data?.result ||
-    null;
-  if (r) return String(r).toLowerCase().includes("tai") ? "Tài" : "Xỉu";
+function parseOpenTime(raw) {
+  return raw?.data?.OpenTime || null;
+}
+
+function parseResult(dice) {
   const total = parseTotal(dice);
   if (total === 0) return null;
   return total >= 11 ? "Tài" : "Xỉu";
@@ -267,19 +257,27 @@ app.get("/api/taixiu", async (req, res) => {
     const dice = parseDice(raw);
     const total = parseTotal(dice);
     const phien = parsePienId(raw);
-    const ketqua = parseResult(raw, dice);
+    const ketqua = parseResult(dice);
+    const openTime = parseOpenTime(raw);
 
     const entry = {
       phien,
       ketqua,
       tong: total,
       xucxac: dice,
-      raw,
+      openTime,
     };
 
     updateHistory(entry);
 
-    const nextPhien = phien ? phien + 1 : null;
+    // Expect dạng "2602271009" → phiên tiếp = số cuối tăng 1
+    let nextPhien = null;
+    if (phien) {
+      const n = parseInt(String(phien).slice(-4), 10);
+      const prefix = String(phien).slice(0, -4);
+      nextPhien = prefix + String(n + 1).padStart(4, "0");
+    }
+
     const duDoan = predict(historyCache);
 
     res.json({
@@ -289,6 +287,7 @@ app.get("/api/taixiu", async (req, res) => {
         ketqua,
         tong: total,
         xucxac: dice,
+        openTime,
       },
       phienDuDoan: nextPhien,
       duDoan: duDoan?.deXuat || null,
@@ -355,13 +354,19 @@ app.get("/api/taixiu/poll", async (req, res) => {
       const dice = parseDice(raw);
       const total = parseTotal(dice);
       const phien = parsePienId(raw);
-      const ketqua = parseResult(raw, dice);
+      const ketqua = parseResult(dice);
+      const openTime = parseOpenTime(raw);
 
-      const entry = { phien, ketqua, tong: total, xucxac: dice };
+      const entry = { phien, ketqua, tong: total, xucxac: dice, openTime };
       updateHistory(entry);
 
       const duDoan = predict(historyCache);
-      const nextPhien = phien ? phien + 1 : null;
+      let nextPhien = null;
+      if (phien) {
+        const n = parseInt(String(phien).slice(-4), 10);
+        const prefix = String(phien).slice(0, -4);
+        nextPhien = prefix + String(n + 1).padStart(4, "0");
+      }
 
       const payload = {
         tick: ++count,
