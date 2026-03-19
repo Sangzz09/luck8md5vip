@@ -272,11 +272,7 @@ app.get("/api/taixiu", async (req, res) => {
 
     res.json({
       phien: phien,
-      ketQua: {
-        code: ketquaCode,
-        label: resultLabel(ketquaCode),
-        tong: total,
-      },
+      ketQua: resultLabel(ketquaCode),
       xucXac: dice,
       phienHienTai: phienTiepTheo,
       duDoan: main ? resultLabel(main.duDoan) : null,
