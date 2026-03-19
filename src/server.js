@@ -278,7 +278,7 @@ app.get("/api/taixiu", async (req, res) => {
         tong: total,
       },
       xucXac: dice,
-      phienHienTai: phien,
+      phienHienTai: phienTiepTheo,
       duDoan: main ? resultLabel(main.duDoan) : null,
       doTinCay: main ? `${main.confidence}%` : null,
       pattern: pattern,
