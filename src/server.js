@@ -641,17 +641,13 @@ app.get("/api/taixiu", async (req, res) => {
     }
 
     res.json({
-      phien,
+      phien: phien,
       ketQua: resultLabel(ketquaCode),
       xucXac: dice,
-      tongDiem: total,
-      phienTiepTheo,
+      phienHienTai: phienTiepTheo,
       duDoan: main ? resultLabel(main.duDoan) : null,
       doTinCay: main ? `${main.confidence}%` : null,
-      cauHien: main ? main.loaiCau : null,
-      soThuatToan: main?.algoCount || null,
-      votes: main?.votes || null,
-      pattern,
+      pattern: pattern,
       id: userId,
     });
   } catch (err) {
