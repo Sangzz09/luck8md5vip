@@ -9,7 +9,7 @@ let historyCache = [];
 const MAX_HISTORY = 200;
 
 // ─── Fetch dữ liệu từ nguồn ──────────────────────────────────────────────────
-async function fetchLatest(id = "") {
+async function fetchLatest(id = "https://luck8bot.com/api/GetNewLottery/TaixiuMd5?id=") {
   const url = ``;
   const res = await axios.get(url, { timeout: 8000 });
   return res.data;
