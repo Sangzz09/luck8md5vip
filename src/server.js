@@ -1,8 +1,12 @@
 const express = require("express");
 const axios = require("axios");
+const https = require("https");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ─── Bỏ qua SSL certificate expired ──────────────────────────────────────────
+const agent = new https.Agent({ rejectUnauthorized: false });
 
 // ─── Lịch sử cache ───────────────────────────────────────────────────────────
 let historyCache = [];
@@ -11,7 +15,7 @@ const MAX_HISTORY = 200;
 // ─── Fetch dữ liệu từ nguồn ──────────────────────────────────────────────────
 async function fetchLatest(id = "") {
   const url = `https://luck8bot.com/api/GetNewLottery/TaixiuMd5?id=${id}`;
-  const res = await axios.get(url, { timeout: 8000 });
+  const res = await axios.get(url, { timeout: 8000, httpsAgent: agent });
   return res.data;
 }
 
@@ -79,7 +83,6 @@ function cauBet(history) {
     if (history[i].ketqua === last) streak++;
     else break;
   }
-  // Nếu streak quá dài (>= 6) → nghi ngờ sắp gãy → giảm weight
   const weight = streak >= 6 ? 0.4 : streak >= 4 ? 0.7 : 1.0;
   return { duDoan: last, loaiCau: `Cầu Bệt (${streak} phiên)`, streak, weight };
 }
@@ -145,7 +148,7 @@ function thongKe10(history) {
   if (last10.length < 5) return null;
   const tai = last10.filter((e) => e.ketqua === "T").length;
   const xiu = last10.length - tai;
-  const duDoan = tai > xiu ? "X" : "T"; // ngược lại để cân bằng
+  const duDoan = tai > xiu ? "X" : "T";
   const imbalance = Math.abs(tai - xiu) / last10.length;
   return {
     duDoan,
@@ -196,10 +199,7 @@ function cauGay(history) {
 //  THUẬT TOÁN NÂNG CAO MỚI
 // ══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Markov Chain – Tính xác suất chuyển trạng thái từ lịch sử
- * P(T|T), P(X|T), P(T|X), P(X|X)
- */
+/** Markov Chain */
 function markovChain(history) {
   if (history.length < 10) return null;
 
@@ -241,10 +241,7 @@ function markovChain(history) {
   };
 }
 
-/**
- * Pattern Matching – Tìm chuỗi N phiên giống nhất trong lịch sử
- * rồi xem phiên tiếp theo của chuỗi đó là gì
- */
+/** Pattern Matching */
 function patternMatching(history, windowSize = 5) {
   if (history.length < windowSize * 2 + 1) return null;
 
@@ -283,11 +280,7 @@ function patternMatching(history, windowSize = 5) {
   };
 }
 
-/**
- * Entropy & Momentum – Đo độ hỗn loạn chuỗi gần đây
- * Entropy cao → thị trường ngẫu nhiên → theo xu hướng gần nhất
- * Entropy thấp → cầu rõ ràng → tiếp tục hoặc gãy
- */
+/** Entropy & Momentum */
 function entropyMomentum(history) {
   const n = Math.min(history.length, 20);
   if (n < 8) return null;
@@ -298,26 +291,22 @@ function entropyMomentum(history) {
   const pT = tai / seq.length;
   const pX = xiu / seq.length;
 
-  // Shannon entropy (0 = hoàn toàn dự đoán được, 1 = tối đa ngẫu nhiên)
   const eps = 1e-9;
   const entropy = -(pT * Math.log2(pT + eps) + pX * Math.log2(pX + eps));
-  const normalizedEntropy = entropy; // max = 1 bit
+  const normalizedEntropy = entropy;
 
-  // Momentum: sum of recent changes (weighted by recency)
   let momentum = 0;
   for (let i = 0; i < Math.min(seq.length - 1, 8); i++) {
-    const weight = Math.pow(0.8, i); // newer = heavier
-    if (seq[i] !== seq[i + 1]) momentum -= weight; // change
-    else momentum += weight; // continuation
+    const weight = Math.pow(0.8, i);
+    if (seq[i] !== seq[i + 1]) momentum -= weight;
+    else momentum += weight;
   }
 
   let duDoan;
   if (normalizedEntropy < 0.7) {
-    // Ít ngẫu nhiên → theo xu hướng momentum
     duDoan = momentum >= 0 ? seq[0] : (seq[0] === "T" ? "X" : "T");
   } else {
-    // Rất ngẫu nhiên → dựa vào thống kê cân bằng
-    duDoan = pT < pX ? "T" : "X"; // lấy mặt ít xuất hiện
+    duDoan = pT < pX ? "T" : "X";
   }
 
   return {
@@ -329,10 +318,7 @@ function entropyMomentum(history) {
   };
 }
 
-/**
- * Hot/Cold Dice – Phân tích mặt xúc xắc xuất hiện nhiều/ít
- * Dự đoán dựa trên "nhiệt độ" xúc xắc
- */
+/** Hot/Cold Dice */
 function hotColdDice(history) {
   const last20 = history.slice(0, 20).filter((e) => e.xucxac && e.xucxac.length > 0);
   if (last20.length < 8) return null;
@@ -345,13 +331,10 @@ function hotColdDice(history) {
     }
   }
 
-  // Expected total based on hot dice probability
   let expectedTotal = 0;
-  const baseProb = 1 / 6;
   for (let face = 1; face <= 6; face++) {
     const observedProb = freq[face] / (totalDice || 1);
-    // Hot face → more likely to appear → weight toward it
-    expectedTotal += face * (observedProb * 3); // 3 dice
+    expectedTotal += face * (observedProb * 3);
   }
 
   const duDoan = expectedTotal >= 11 ? "T" : "X";
@@ -369,10 +352,7 @@ function hotColdDice(history) {
   };
 }
 
-/**
- * Streak Momentum Nâng Cao – Phân tích cầu với decay
- * Cầu ngắn có trọng số cao, cầu dài giảm dần (gambler fallacy correction)
- */
+/** Streak Momentum Nâng Cao */
 function streakMomentumAdvanced(history) {
   if (history.length < 6) return null;
 
@@ -382,22 +362,19 @@ function streakMomentumAdvanced(history) {
     const cur = history[i].ketqua;
     if (!cur) continue;
 
-    // Exponential decay: newer entries matter more
     const recencyWeight = Math.pow(0.85, i);
 
-    // Streak at position i
     let streakLen = 1;
     for (let j = i + 1; j < history.length; j++) {
       if (history[j].ketqua === cur) streakLen++;
       else break;
     }
 
-    // Optimal streak: 2-4 → high confidence, longer → mean reversion risk
     let streakMult;
     if (streakLen <= 1) streakMult = 0.8;
     else if (streakLen <= 3) streakMult = 1.2;
     else if (streakLen <= 5) streakMult = 0.9;
-    else streakMult = 0.5; // very long streak → likely to break
+    else streakMult = 0.5;
 
     scores[cur] += recencyWeight * streakMult;
   }
@@ -414,9 +391,7 @@ function streakMomentumAdvanced(history) {
   };
 }
 
-/**
- * Mean Reversion – Phát hiện độ lệch khỏi 50/50 và dự đoán hồi quy
- */
+/** Mean Reversion */
 function meanReversion(history) {
   const n = Math.min(history.length, 30);
   if (n < 15) return null;
@@ -426,10 +401,8 @@ function meanReversion(history) {
   const pTai = tai / seq.length;
   const deviation = pTai - 0.5;
 
-  // Only act if significant deviation
   if (Math.abs(deviation) < 0.1) return null;
 
-  // Mean reversion: if too many Tài → predict Xỉu
   const duDoan = deviation > 0 ? "X" : "T";
   const strength = Math.min(Math.abs(deviation) * 2, 1);
 
@@ -441,10 +414,7 @@ function meanReversion(history) {
   };
 }
 
-/**
- * Sliding Window Accuracy – Theo dõi độ chính xác của từng thuật toán
- * và điều chỉnh trọng số tự động (Meta-learning)
- */
+/** Meta-learning: Theo dõi độ chính xác từng thuật toán */
 const algoAccuracy = {};
 const ACCURACY_WINDOW = 30;
 
@@ -464,7 +434,6 @@ function getAlgoWeight(algoName, baseWeight) {
   const acc = algoAccuracy[algoName];
   if (!acc || acc.total < 5) return baseWeight;
   const accuracy = acc.hits / acc.total;
-  // Scale: 40% accuracy → 0.5x weight, 60% → 1.5x weight
   const scale = 0.5 + (accuracy - 0.4) * 5;
   return baseWeight * Math.max(0.2, Math.min(2.0, scale));
 }
@@ -521,9 +490,6 @@ function aiVotingAdvanced(history) {
 
   const duDoan = votes.T >= votes.X ? "T" : "X";
   const rawConfidence = Math.max(votes.T, votes.X) / totalWeight;
-
-  // Calibrate confidence: avoid overconfidence
-  // Raw 60% → ~55%, Raw 80% → ~70%
   const calibratedConfidence = 50 + (rawConfidence - 0.5) * 70;
   const confidence = Math.round(Math.max(51, Math.min(92, calibratedConfidence)));
 
@@ -577,7 +543,7 @@ function predict(history) {
 }
 
 // ─── Track kết quả để cập nhật accuracy ──────────────────────────────────────
-let lastPredictions = {}; // { phien: { algo: predicted } }
+let lastPredictions = {};
 
 function recordPredictions(phien, tatCaThuat) {
   if (!phien) return;
@@ -585,7 +551,6 @@ function recordPredictions(phien, tatCaThuat) {
   for (const [name, r] of Object.entries(tatCaThuat)) {
     if (r) lastPredictions[phien][name] = r.duDoan;
   }
-  // Clean old entries
   const keys = Object.keys(lastPredictions);
   if (keys.length > 50) delete lastPredictions[keys[0]];
 }
@@ -624,7 +589,6 @@ app.get("/api/taixiu", async (req, res) => {
     const ketquaCode = parseResult(dice);
     const openTime = parseOpenTime(raw);
 
-    // Evaluate last phien's predictions before updating
     if (phien && ketquaCode) evaluatePredictions(phien, ketquaCode);
 
     const entry = { phien, ketqua: ketquaCode, tong: total, xucxac: dice, openTime };
@@ -635,7 +599,6 @@ app.get("/api/taixiu", async (req, res) => {
     const phienTiepTheo = nextPhien(phien);
     const pattern = buildPattern(historyCache, 20);
 
-    // Record for next evaluation
     if (duDoan?.tatCaThuat && phienTiepTheo) {
       recordPredictions(phienTiepTheo, duDoan.tatCaThuat);
     }
@@ -686,7 +649,6 @@ app.get("/api/taixiu/predict", (req, res) => {
   const pattern = buildPattern(historyCache, 20);
   const phienTiepTheo = nextPhien(historyCache[0]?.phien);
 
-  // Accuracy stats
   const accuracyStats = {};
   for (const [name, acc] of Object.entries(algoAccuracy)) {
     if (acc.total > 0) {
