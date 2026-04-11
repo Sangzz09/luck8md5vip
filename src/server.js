@@ -9,8 +9,8 @@ let historyCache = [];
 const MAX_HISTORY = 200;
 
 // ─── Fetch dữ liệu từ nguồn ──────────────────────────────────────────────────
-async function fetchLatest(id = "https://luck8bot.com/api/GetNewLottery/TaixiuMd5?id=${id}") {
-  const url = ``;
+async function fetchLatest(id = "") {
+  const url = `https://luck8bot.com/api/GetNewLottery/TaixiuMd5?id=${id}`;
   const res = await axios.get(url, { timeout: 8000 });
   return res.data;
 }
